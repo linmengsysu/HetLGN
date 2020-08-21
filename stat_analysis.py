@@ -16,12 +16,12 @@ import seaborn as sns
 # import randomexit
 parser = argparse.ArgumentParser(description='Training GNN on Paper-Venue (Journal) classification task')
 
-parser.add_argument('--data_dir', type=str, default='./data/',
+parser.add_argument('--data_dir', type=str, default='./datasets/OGB_MAG.pk',
                     help='The address of preprocessed graph.')
 
 parser.add_argument('--cuda', type=int, default=0,
                     help='Avaiable GPU ID')
-parser.add_argument('--domain', type=str, default='_acm_v2',
+parser.add_argument('--domain', type=str, default='OGB_MAG',
                     help='CS, Medicion or All: _CS or _Med or (empty)')
 parser.add_argument('--sample_number', type=int, default=8,
                     help='How many nodes to be sampled per layer per type')
@@ -29,9 +29,9 @@ parser.add_argument('--sample_number', type=int, default=8,
 parser.add_argument('--sample_depth', type=int, default=3,
                     help='How many nodes to be sampled per layer per type')
 
-parser.add_argument('--output_dir', type=str, default='dblp',
+parser.add_argument('--output_dir', type=str, default='.',
                     help='CS, Medicion or All: _CS or _Med or (empty)')
-parser.add_argument('--repeat', type=int, default=30,
+parser.add_argument('--repeat', type=int, default=2,
                     help='How many times to be sampled')
 
 random.seed(time.time())
@@ -155,7 +155,7 @@ def random_walk_restart1(graph, sampled_number=8, inp=None):
     return subgraph_data
 
 
-def degree_distribution(graph_nx, nodes, node_type='all'):
+def degree_distribution(graph_nx, nodes, node_type='paper'):
     # print(type(nodes), node_type, nodes)
     degree_sequence = sorted([graph_nx.degree(n) for n in nodes], reverse=True)  # degree sequence
     # print "Degree sequence", degree_sequence
@@ -174,7 +174,7 @@ def degree_distribution(graph_nx, nodes, node_type='all'):
     plt.title("Degree rank plot")
     plt.ylabel("#degree")
     plt.xlabel("rank")
-    plt.savefig('./data/{}/degree_distribution_{}.png'.format(args.output_dir, node_type))
+    plt.savefig('{}/degree_distribution_{}.png'.format(args.output_dir, args.domain))
     # plt.show()
     plt.clf()
     max_deg = max(degree_sequence)
@@ -183,7 +183,7 @@ def degree_distribution(graph_nx, nodes, node_type='all'):
     plt.title("Degree Histogram")
     # plt.ylabel("")
     plt.xlabel("degrees")
-    plt.savefig('./data/{}/degree_histogram_{}.png'.format(args.output_dir, node_type))
+    plt.savefig('{}/degree_histogram_{}.png'.format(args.output_dir, args.domain))
     plt.clf()
 
     percentage = dict(percentage)
@@ -481,28 +481,28 @@ def to_nx(graph, index_dict):
 
 
 
-
-graph = dill.load(open(os.path.join(args.data_dir, 'graph%s.pk' % args.domain), 'rb'))
-label_paper_dict = dill.load(open(os.path.join(args.data_dir, 'labels%s.pk' % args.domain), 'rb'))
+graph = dill.load(open(args.data_dir, 'rb'))
+# graph = dill.load(open(os.path.join(args.data_dir, 'graph%s.pk' % args.domain), 'rb'))
+# label_paper_dict = dill.load(open(os.path.join(args.data_dir, 'labels%s.pk' % args.domain), 'rb'))
 
 node_index_dict = {}
 node_num = 0
-for _type in graph.node_forward:
+for _type in graph.node_feature:
     node_index_dict[_type] = node_num
-    node_num += len(graph.node_forward[_type])
+    node_num += len(graph.node_feature[_type])
     print('node num', _type, node_num)
 
+target_nodes = np.arange(736389)
 
-
-all_pairs = {}
-# label_paper_dict = dill.load(open(os.path.join(args.data_dir, 'labels%s.pk' % args.domain), 'rb'))
-for label in label_paper_dict:
-    # np.random.shuffle(label_paper_dict[label])
-    for p in label_paper_dict[label]:
-        # if p in graph.node_forward['paper']:
-            # node_id = graph.node_forward['paper'][p]
-        all_pairs[p] = label
-        # print('p', p)
+# all_pairs = {}
+# # label_paper_dict = dill.load(open(os.path.join(args.data_dir, 'labels%s.pk' % args.domain), 'rb'))
+# for label in label_paper_dict:
+#     # np.random.shuffle(label_paper_dict[label])
+#     for p in label_paper_dict[label]:
+#         if p in graph.node_forward['item']:
+#             node_id = graph.node_forward['item'][p]
+#         all_pairs[node_id] = label
+#         # print('p', p)
 
 graph_nx = to_nx(graph, node_index_dict)
 all_rwr = []
@@ -515,33 +515,34 @@ all_rwr = []
 #         rwr = to_nx_idx(subgraphs[i], node_index_dict)
 #         all_rwr.append(rwr)
 # except:
-print('random walk on graph')
-target_info = list(all_pairs.keys())
-subgraphs = []
-type_dis = defaultdict(  # type
-        lambda:defaultdict(lambda: []  # [sample ids]
-    ))
-for i in range(args.repeat):
-    subgraph_data = HGT_sample(graph, inp={'paper': np.array(target_info)}, \
-                                        sampled_number=args.sample_number, sampled_depth=args.sample_depth)
-    rwr = to_nx_idx(subgraph_data, node_index_dict)
-    type_dis = type_distribution(subgraph_data, type_dis)
-    all_rwr.append(rwr)
-    subgraphs.append(subgraph_data)
+# print('random walk on graph')
+# target_info = list(all_pairs.keys())
+# subgraphs = []
+# type_dis = defaultdict(  # type
+#         lambda:defaultdict(lambda: []  # [sample ids]
+#     ))
+# for i in range(args.repeat):
+#     subgraph_data = HGT_sample(graph, inp={'item': np.array(target_info)}, \
+#                                         sampled_number=args.sample_number, sampled_depth=args.sample_depth)
+#     rwr = to_nx_idx(subgraph_data, node_index_dict)
+#     type_dis = type_distribution(subgraph_data, type_dis)
+#     all_rwr.append(rwr)
+#     subgraphs.append(subgraph_data)
 
-dill.dump(subgraphs, open(args.data_dir+'/hgt_rwr{}_sample_{}_repeat_{}.pk'.format(args.domain, args.sample_number, args.repeat),'wb'))
+# dill.dump(subgraphs, open(args.data_dir+'/hgt_rwr{}_sample_{}_repeat_{}.pk'.format(args.domain, args.sample_number, args.repeat),'wb'))
 
-print('all rwr len={}'.format(len(all_rwr)))
-'''
-    plot degree distribution over graph/specific type
-'''
-# degree_distribution(graph_nx, list(graph_nx.nodes()), 'all')
-print('type analysis')
-plot_type_his(type_dis)
-print('hop analysis')
-hop_analysis(all_rwr, graph_nx)
-print('local density')
-validate_local_density(all_rwr, graph_nx)
+# print('all rwr len={}'.format(len(all_rwr)))
+# '''
+#     plot degree distribution over graph/specific type
+# '''
+print('degree distribution')
+degree_distribution(graph_nx, target_nodes, 'paper')
+# print('type analysis')
+# plot_type_his(type_dis)
+# print('hop analysis')
+# hop_analysis(all_rwr, graph_nx)
+# print('local density')
+# validate_local_density(all_rwr, graph_nx)
 # start = 0
 # for _type in graph.node_forward:
 #     node_num = len(graph.node_forward[_type])

@@ -1,8 +1,15 @@
+'''
+    Author: Lin Meng
+
+    codes except feature_MAG and feature_HetLGN are from HGT resiptory 
+    reference: https://github.com/acbull/pyHGT/tree/master/pyHGT
+'''
 import numpy as np
 import scipy.sparse as sp
 import torch
 from sklearn.metrics import f1_score
 from collections import defaultdict
+from sklearn.preprocessing import OneHotEncoder, LabelBinarizer, MultiLabelBinarizer
 
 def dcg_at_k(r, k):
     r = np.asfarray(r)[:k]
@@ -47,56 +54,38 @@ def randint():
     # return 8
 
 
-
-def feature_OAG(layer_data, graph):
-    feature = {}
-    # times   = {}
-    indxs   = {}
-    texts   = []
-    for _type in layer_data:
-        if len(layer_data[_type]) == 0:
-            continue
-        idxs  = np.array(list(layer_data[_type].keys()))
-        # tims  = np.array(list(layer_data[_type].values()))[:,1]
-        
-        if 'node_emb' in graph.node_feature[_type]:
-            feature[_type] = np.array(list(graph.node_feature[_type].loc[idxs, 'node_emb']), dtype=np.float)
-        else:
-            feature[_type] = np.zeros([len(idxs), 400])
-        feature[_type] = np.concatenate((feature[_type], list(graph.node_feature[_type].loc[idxs, 'emb']),\
-            np.log10(np.array(list(graph.node_feature[_type].loc[idxs, 'citation'])).reshape(-1, 1) + 0.01)), axis=1)
-        
-        # times[_type]   = tims
-        indxs[_type]   = idxs
-        
-        # if _type == 'paper':##? didn't process in preprocess.py
-        #     texts = np.array(list(graph.node_feature[_type].loc[idxs, 'title']), dtype=np.str)
-    # return feature, times, indxs, texts
-    return feature, indxs, texts
-
-
-def feature_IsoNode(subgraph_data, graph):
+'''
+    extract content features and structure features of sampled context graphs
+    Input:
+        subgraph data: all context graphs 
+        graph: the original graph
+        depth: searching depth
+    output:
+        feature dict for context graphs
+'''
+def feature_HetLGN(subgraph_data, graph, depth):
     feature = defaultdict( #target_id
                 lambda: defaultdict(  #source_type
                             ))
-
-    # times   = {}
-    indxs = defaultdict( #target_id
-                lambda: defaultdict(  #source_type
-                            ))
-    texts = []
-
+  
     for target_type in subgraph_data:
         for target_id in subgraph_data[target_type]:
             for source_type in subgraph_data[target_type][target_id]:
                 if len(subgraph_data[target_type][target_id][source_type]) == 0:
                     continue
                 idxs = np.array(list(subgraph_data[target_type][target_id][source_type].keys()))
+                struct_label = np.array(list(subgraph_data[target_type][target_id][source_type].values()))[:,1].reshape(-1,1)
+                # print(struct_label.tolist())
+                struct_feat = np.zeros((len(struct_label), depth))
+                for i in range(len(struct_label)):
+                    struct_feat[i,struct_label[i]] = 1 
+                # print(struct_feat)
+                content_feat = np.array(list(graph.node_feature[source_type].loc[idxs, 'emb']))
+                feature[target_id][source_type] = np.concatenate([content_feat, struct_feat], axis=-1)
+                # print('feature shape', feature[target_id][source_type].shape, content_feat.shape, struct_feat.shape)
+                
 
-                feature[target_id][source_type] = np.array(list(graph.node_feature[source_type].loc[idxs, 'emb']))
-                indxs[target_id][source_type] = idxs
-
-    return feature, indxs, texts
+    return feature
 
 def score(logits, labels):
     _, indices = torch.max(logits, dim=1)
@@ -108,3 +97,48 @@ def score(logits, labels):
     macro_f1 = f1_score(labels, prediction, average='macro')
 
     return accuracy, micro_f1, macro_f1
+
+def normalizex(adj):
+    row_sum = np.sum(adj, axis=0)
+    d = np.diag(row_sum).inv()
+    d[d==np.inf] = 0
+    norm = np.dot(adj, d)
+
+def normalize_adj(adj):
+    """Symmetrically normalize adjacency matrix."""
+    adj = sp.coo_matrix(adj)
+    rowsum = np.array(adj.sum(1))
+    d_inv_sqrt = np.power(rowsum, -0.5).flatten()
+    d_inv_sqrt[np.isinf(d_inv_sqrt)] = 0.
+    d_mat_inv_sqrt = sp.diags(d_inv_sqrt)
+    return adj.dot(d_mat_inv_sqrt).transpose().dot(d_mat_inv_sqrt).toarray()
+
+
+def count_parameters(model):
+        return sum(p.numel() for p in model.parameters() if p.requires_grad)
+
+'''
+    Feature extractor for MAG dataset
+'''
+def feature_MAG(subgraph_data, subfeature):
+    feature = defaultdict( #target_id
+                lambda: defaultdict(  #source_type
+                            ))
+
+    # texts   = []
+    # indxs = defaultdict( #target_id
+    #             lambda: defaultdict(  #source_type
+    #                         ))
+  
+    for target_type in subgraph_data:
+        for target_id in subgraph_data[target_type]:
+            for source_type in subgraph_data[target_type][target_id]:
+                if len(subgraph_data[target_type][target_id][source_type]) == 0:
+                    continue
+                idxs  = np.array(list(subgraph_data[target_type][target_id][source_type].keys()), dtype = np.int)
+              
+                feature[target_id][source_type] = subfeature[source_type][idxs]
+
+                # indxs[target_id][source_type] = idxs
+
+    return feature

@@ -1,15 +1,20 @@
-# from pytorch_transformers import *
-
+'''
+    Preprocessing dataset
+    Author: Lin Meng
+    codes for averaging features to neighbors and reconstruct edges are from HGT resiptory 
+    reference: https://github.com/acbull/pyHGT/blob/master/OAG/preprocess_OAG.py
+'''
 from data import *
-# import gensim
-# from gensim.models import Word2Vec
 from tqdm import tqdm
 # from tqdm import tqdm_notebook as tqdm   # Comment this line if using jupyter notebook
 from collections import defaultdict
 import dill
 import argparse
-
-parser = argparse.ArgumentParser(description='Preprocess OAG (CS/Med/All) Data')
+import collections
+from nltk.corpus import stopwords
+from sklearn.preprocessing import OneHotEncoder, LabelBinarizer, MultiLabelBinarizer
+spw = stopwords.words('english')
+parser = argparse.ArgumentParser(description='Preprocess DBLP Data')
 
 '''
     Dataset arguments
@@ -20,152 +25,163 @@ parser.add_argument('--output_dir', type=str, default='./data/',
                     help='The address to output the preprocessed graph.')
 parser.add_argument('--cuda', type=int, default=0,
                     help='Avaiable GPU ID')
-parser.add_argument('--domain', type=str, default='citation-acm-v8',
-                    help='CS, Medical or All: _CS or _Med or (empty)')
-# {1: 5691, 0: 5437, 2: 3789})
+parser.add_argument('--domain', type=str, default='DBLP_four_area',
+                    help='dataset filename')
+
 args = parser.parse_args()
-conf_ids = [22, 16, 779]
-label_ids = [0, 1, 2, 2, 4, 5, 6]
-
-
-paper_info = defaultdict(lambda: defaultdict())
-with open(os.path.join(args.data_dir, '%s_paper_info.tsv'% args.domain), 'r') as fin:
-    for line in fin:
-        pi = line.strip().split('\t')
-        paper_info[pi[0]] = {'id': pi[0], 'title':pi[1], 'type': 'paper', 'abstract': pi[2], 'year':pi[3]}
-print('paper info finished')
-
-author_info = defaultdict()
-with open(os.path.join(args.data_dir, '%s_author.tsv'% args.domain), 'r') as fin:
-     for line in fin:
-        ai = line.strip().split('\t')
-        # print(ai)
-        author_info[ai[1]] = {'id':ai[1], 'name':ai[0], 'type': 'author'}
-print('author finished')
 
 
 conf_info = defaultdict()
-with open(os.path.join(args.data_dir, '%s_conf.tsv'% args.domain), 'r') as fin:
+with open(os.path.join(args.data_dir, '%s/conf.txt'% args.domain), 'r') as fin:
     for line in fin:
         ci = line.strip().split('\t')
-        conf_info[ci[1]] = {'id':ci[1], 'name':ci[0], 'type': 'venue'}
+        conf_info[ci[0]] = {'id':ci[0], 'name':ci[1], 'type': 'venue'}
 print('conf finished')
 
+author_info = defaultdict()
+with open(os.path.join(args.data_dir, '%s/author_label.txt'% args.domain), 'r', encoding='utf-8') as fin:
+    for line in fin:
+        al = line.strip().split('\t')
+        author_info[al[0]] = {}
+print('label_target_dict author info finished')
+
+
+
+with open(os.path.join(args.data_dir, '%s/author.txt'% args.domain), 'r',encoding='utf-8') as fin:
+     for line in fin:
+        ai = line.strip().split('\t')
+        if ai[0] in author_info:
+            author_info[ai[0]] = {'id':ai[0], 'name':ai[1], 'type': 'author'}
+print('author finished', len(author_info))
+
+paper_info = defaultdict(lambda: defaultdict())
+with open(os.path.join(args.data_dir, '%s/paper.txt'% args.domain), 'r', encoding='latin1') as fin:
+    for line in fin:
+        pi = line.strip().split('\t')
+        paper_info[pi[0]] = {'id': pi[0], 'title':pi[1], 'type': 'paper'}
+print('paper info finished')
+
+
+term_info = defaultdict()
+with open(os.path.join(args.data_dir, '%s/term.txt'% args.domain), 'r', encoding='utf-8') as fin:
+    for line in fin:
+        ti = line.strip().split('\t')
+        if ti[1] not in spw:
+            term_info[ti[0]] = {'id':ti[0], 'word':ti[1], 'type': 'term'}
+
+
 graph = Graph()
+'''
+    add egdes author-paper (AP), paper-venue (PV)
+'''
 count = defaultdict(lambda:0)
-with open(os.path.join(args.data_dir, '%s_paper_author.tsv'% args.domain), 'r') as fin:
+res = []
+count_author_papars = defaultdict(lambda:[])
+# count = defaultdict(lambda:0)
+with open(os.path.join(args.data_dir, '%s/paper_author.txt'% args.domain), 'r', encoding='utf-8') as fin:
     for line in fin:
         pa = line.strip().split('\t')
-        graph.add_edge(author_info[pa[1]], paper_info[pa[0]], relation_type = 'PA')
-        count['pa'] += 1
+        if pa[1] in author_info:
+            graph.add_edge(author_info[pa[1]], paper_info[pa[0]], relation_type = 'PA')
+            count['pa'] += 1
+            res.append(pa[0])
+            count_author_papars[pa[1]].append(pa[0])
 
-print('paper author finished')
+paper_info = {x: paper_info[x] for x in res}        
+# print('paper author finished, len paper info', len(paper_info))
+# print('len of author={}'.format(len(count_author_papars)))
+count_pa=[len(count_author_papars[x]) for x in count_author_papars]
+cnt = collections.Counter(count_pa)
 
-count = defaultdict(lambda:0)
-label_paper_dict = defaultdict(lambda:[])
-with open(os.path.join(args.data_dir, '%s_paper_conf.tsv'% args.domain), 'r') as fin:
+
+
+res = []
+with open(os.path.join(args.data_dir, '%s/paper_conf.txt'% args.domain), 'r', encoding='utf-8') as fin:
     for line in fin:
         pc = line.strip().split('\t')
-        # print(pc[1])
-        if int(pc[1]) not in conf_ids:
+        if pc[0] in paper_info:
             graph.add_edge(paper_info[pc[0]], conf_info[pc[1]], relation_type = 'PV')
-        else:
-            ind = conf_ids.index(int(pc[1]))
-            label_paper_dict[label_ids[ind]].append(pc[0])
-            count[label_ids[ind]] += 1
+            count['PV'] += 1
+            res.append(pc[0])
 print('paper conf finished')
-print('count={}'.format(count))
-dill.dump(label_paper_dict, open(args.output_dir + 'labels_%s.pk' % args.domain, 'wb'))
-# print(args.output_dir + 'graph%s.pk' % args.domain)
 
-with open(os.path.join(args.data_dir, '%s_paper_cite.tsv'% args.domain), 'r') as fin:
+res = []
+with open(os.path.join(args.data_dir, '%s/paper_term.txt'% args.domain), 'r',encoding='utf-8') as fin:
     for line in fin:
-        pa = line.strip().split('\t')
-        for p in pa[1:]:
-            if p in paper_info:
-                graph.add_edge(paper_info[pa[0]], paper_info[p], relation_type = 'PP_cite')
-print('paper cite finished')
+        pt = line.strip().split('\t')
+        if pt[0] in paper_info and pt[1] in term_info:
+            graph.add_edge(term_info[pt[1]], paper_info[pt[0]], relation_type = 'PT')
+            res.append(pt[1])
+            count['pt'] += 1
 
+term_info = {x: term_info[x] for x in res}
+print('paper term finished', len(term_info))
+print('count={}'.format(count))
 
-     
-    
 '''
-    Calculate the total citation information as node attributes.
+    paper is directly connected to keywords, do bag-of-words; author feature: bag-of-words 
 '''
-    
-for idx, pi in enumerate(graph.node_bacward['paper']):
-    pi['citation'] = len(graph.edge_list['paper']['paper']['PP_cite'][idx])
-for idx, ai in enumerate(graph.node_bacward['author']):
-    citation = 0
-    for rel in graph.edge_list['author']['paper'].keys():
-        for pid in graph.edge_list['author']['paper'][rel][idx]:
-            citation += graph.node_bacward['paper'][pid]['citation']
-    ai['citation'] = citation
-# for idx, fi in enumerate(graph.node_bacward['affiliation']):
-#     citation = 0
-#     for aid in graph.edge_list['affiliation']['author']['in'][idx]:
-#         citation += graph.node_bacward['author'][aid]['citation']
-#     fi['citation'] = citation
-# for idx, vi in enumerate(graph.node_bacward['venue']):
-#     citation = 0
-#     for rel in graph.edge_list['venue']['paper'].keys():
-#         for pid in graph.edge_list['venue']['paper'][rel][idx]:
-#             citation += graph.node_bacward['paper'][pid]['citation']
-#     vi['citation'] = citation
-# for idx, fi in enumerate(graph.node_bacward['field']):
-#     citation = 0
-#     for rel in graph.edge_list['field']['paper'].keys():
-#         for pid in graph.edge_list['field']['paper'][rel][idx]:
-#             citation += graph.node_bacward['paper'][pid]['citation']
-#     fi['citation'] = citation
-    
-    
-    
+selected_keyword = []
+with open(os.path.join(args.data_dir, '%s/selected_term.txt'% args.domain), 'r',encoding='utf-8') as fin:
+    for line in fin:
+        w = line.strip()
+        selected_keyword.append(w)
+print('selected keywords len={}'.format(len(selected_keyword)))
 
-# '''
-#     Since only paper have w2v embedding, we simply propagate its
-#     feature to other nodes by averaging neighborhoods.
-#     Then, we construct the Dataframe for each node type.
-# '''
-# d = pd.DataFrame(graph.node_bacward['paper'])
-# graph.node_feature = {'paper': d}
-# cv = np.array(list(d['emb']))
-# for _type in graph.node_bacward:
-#     if _type not in ['paper', 'affiliation']:
-#         d = pd.DataFrame(graph.node_bacward[_type])
-#         i = []
-#         for _rel in graph.edge_list[_type]['paper']:
-#             for t in graph.edge_list[_type]['paper'][_rel]:
-#                 for s in graph.edge_list[_type]['paper'][_rel][t]:
-#                     if graph.edge_list[_type]['paper'][_rel][t][s] <= test_time_bar:
-#                         i += [[t, s]]
-#         if len(i) == 0:
-#             continue
-#         i = np.array(i).T
-#         v = np.ones(i.shape[1])
-#         m = normalize(sp.coo_matrix((v, i), \
-#             shape=(len(graph.node_bacward[_type]), len(graph.node_bacward['paper']))))
-#         out = m.dot(cv)
-#         d['emb'] = list(out)
-#         graph.node_feature[_type] = d
-# '''
-#     Affiliation is not directly linked with Paper, so we average the author embedding.
-# '''
-# cv = np.array(list(graph.node_feature['author']['emb']))
-# d = pd.DataFrame(graph.node_bacward['affiliation'])
-# i = []
-# for _rel in graph.edge_list['affiliation']['author']:
-#     for j in graph.edge_list['affiliation']['author'][_rel]:
-#         for t in graph.edge_list['affiliation']['author'][_rel][j]:
-#             i += [[j, t]]
-# i = np.array(i).T
-# v = np.ones(i.shape[1])
-# m = normalize(sp.coo_matrix((v, i), \
-#     shape=(len(graph.node_bacward['affiliation']), len(graph.node_bacward['author']))))
-# out = m.dot(cv)
-# d['emb'] = list(out)
-# graph.node_feature['affiliation'] = d           
-      
+
+
+paper_word = defaultdict(lambda:[])
+with open(os.path.join(args.data_dir, '%s/paper_term.txt'% args.domain), 'r',encoding='utf-8') as fin:
+    for line in fin:
+        pt = line.strip().split('\t')
+        if pt[0] in paper_info and pt[1] in term_info and term_info[pt[1]]['word'] in selected_keyword:
+            paper_word[pt[0]].append(pt[1])
+
+paper2feature = [paper_word[x] for x in paper_word]
+        
+ohe = MultiLabelBinarizer()
+paper_feature = ohe.fit_transform(paper2feature).astype('float')
+
+for i, paper in enumerate(paper_word.keys()):
+    paper_info[paper]['emb'] = paper_feature[i]
+    # print('features')
+    
+for paper in paper_info:
+    if paper not in paper_word:
+        paper_info[paper]['emb'] = np.zeros(334)
+
+# print('count_edge', count_edge)
+for _type in graph.node_forward:
+    print(_type,'has nodes:', len(graph.node_forward[_type]))
+
+'''
+    Since only paper have w2v embedding, we simply propagate its
+    feature to other nodes by averaging neighborhoods.
+    Then, we construct the Dataframe for each node type.
+'''
+d = pd.DataFrame(graph.node_bacward['paper'])
+graph.node_feature = {'paper': d}
+cv = np.array(list(d['emb']))
+print('cv shape', cv.shape)
+for _type in graph.node_bacward:
+    if _type not in ['paper']:
+        d = pd.DataFrame(graph.node_bacward[_type])
+        i = []
+        for _rel in graph.edge_list[_type]['paper']:
+            for t in graph.edge_list[_type]['paper'][_rel]:
+                for s in graph.edge_list[_type]['paper'][_rel][t]:
+                    i += [[t, s]]
+        if len(i) == 0:
+            continue
+        i = np.array(i).T
+        v = np.ones(i.shape[1])
+        m = normalize(sp.coo_matrix((v, i), \
+            shape=(len(graph.node_bacward[_type]), len(graph.node_bacward['paper']))))
+        print(type(m),m.shape)
+        out = m.dot(cv)
+        d['emb'] = list(np.array(out>0, dtype=np.int32))
+        graph.node_feature[_type] = d
+
     
 edg = {}
 for k1 in graph.edge_list:
@@ -187,5 +203,16 @@ for k1 in graph.edge_list:
 graph.edge_list = edg
 
         
-del graph.node_bacward        
-dill.dump(graph, open(args.output_dir + '/graph_%s.pk' % args.domain, 'wb'))   
+del graph.node_bacward     
+# dill.dump(graph, open(args.output_dir + '/graph_%s.pk' % args.domain, 'wb'))   
+
+
+
+label_target_dict = defaultdict(lambda:[])
+with open(os.path.join(args.data_dir, '%s/author_label.txt'% args.domain), 'r', encoding='utf-8') as fin:
+    for line in fin:
+        al = line.strip().split('\t')
+        label_target_dict[int(al[1])].append(graph.node_forward['author'][al[0]])
+# print('label_target_dict author info finished')
+# dill.dump(label_target_dict, open(args.output_dir + 'labels_%s.pk' % args.domain, 'wb'))
+
