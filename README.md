@@ -61,3 +61,6 @@ If you prefer to use docker, please cd to the dockerfile folder /home/meng/code/
     '''
     and cd to ../code/isonode
 
+## Plot
+The plot file is node_clustering.py
+
