@@ -2,15 +2,75 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.autograd import Variable
-from torch_geometric.nn import GCNConv, GATConv
+from torch_geometric.nn import GCNConv, GATConv, global_add_pool
 # from torch_geometric.nn.conv import MessagePassing
 from torch_geometric.nn.inits import glorot, uniform
+from torch_geometric.nn import MessagePassing
+from torch_geometric.utils import add_self_loops, degree
 from torch_geometric.utils import softmax
 import numpy as np
 from itertools import permutations
 from numpy import linalg as LA
 from scipy.optimize import linear_sum_assignment
 import math
+import numpy as np
+from torch_geometric.utils import add_self_loops
+
+class GCNNet(torch.nn.Module):
+    def __init__(self, in_hid, out_hid, n_layer=3, depth=3, dropout=0, bias=True, device=0):
+        super(GCNNet, self).__init__()
+        self.in_hid = in_hid
+        self.out_hid = out_hid
+        self.dropout = dropout
+        self.device = device
+        self.depth = depth
+        self.feat_conv = nn.ModuleList()
+        self.feat_conv.append(GCNConv(in_hid, out_hid))
+
+        self.struct_conv = nn.ModuleList()
+        self.struct_conv.append(GCNConv(depth, out_hid))
+        for i in range(n_layer-1):
+            self.struct_conv.append(GCNConv(out_hid, out_hid))
+            self.feat_conv.append(GCNConv(out_hid, out_hid))
+
+        self.wlinear = nn.Linear(n_layer*out_hid, out_hid)
+
+    def forward(self, data):
+        data.edge_index = add_self_loops(data.edge_index)[0]
+        x, edge_index = data.x, data.edge_index
+        hc = self.feature(x, edge_index, data.batch)
+        # hs = self.structure(xs, edge_index, data.batch)
+        # h = self.wlinear(torch.cat([hc,hs], dim=-1))
+        # h = self.wlinear(hc)
+        return hc
+
+
+    def feature(self, x, edge_index, batch):    
+        layer_output = []
+        for i in range(len(self.feat_conv)):
+            x = self.feat_conv[i](x, edge_index)
+            x = F.relu(x)
+            x = F.dropout(x, training=self.training)
+            layer_output.append(global_add_pool(x, batch))
+    
+        # output = torch.cat(layer_output, dim=-1)
+        # all_outputs.append(global_add_pool(x, data.batch))
+        # torch.cat(layer_output, dim=1)
+        return torch.cat(layer_output, dim=1)
+
+    def structure(self, x, edge_index, batch):
+        layer_output = []
+        for i in range(len(self.struct_conv)):
+            x = self.struct_conv[i](x, edge_index)
+            x = F.relu(x)
+            x = F.dropout(x, training=self.training)
+            layer_output.append(global_add_pool(x, batch))
+
+        return torch.cat(layer_output, dim=1)
+
+        
+
+
 
 '''
 input [B, in, H, W] type [B, in, H] features [B, H, in_dim]
@@ -95,6 +155,41 @@ class dilated_iso_layer(nn.Module):
         P_star = P_star.type(torch.FloatTensor)
         return P_star
 
+    def _prepare_random(self, graph, types, features, d):
+        g = graph
+        _, _, n_H_prev, n_W_prev = g.size()
+        print('prepare subgraph randomly')
+        subgraphs = []
+        row_type_seq = []
+        row_features = []
+        col_type_seq = []
+        col_features = []
+        n_subgraph = 10000
+        # print('n_h', n_H)
+        for h in range(n_subgraph):
+            h_idx = np.random.choice(n_H_prev, self.kernel_size, replace=False)
+            w_idx = np.random.choice(n_W_prev, self.kernel_size, replace=False)
+
+            x_slice = g[:, :, h_idx, :][:, :, :, w_idx]
+            row_t_slice = types[:, :, h_idx]
+            col_t_slice = types[:, :, w_idx]
+            row_f_slice = features[:, h_idx, :]
+            col_f_slice = features[:, w_idx, :]
+            subgraphs.append(x_slice)
+            row_type_seq.append(row_t_slice)
+            col_type_seq.append(col_t_slice)
+            row_features.append(torch.sum(row_f_slice, dim=-2))
+            col_features.append(torch.sum(col_f_slice, dim=-2))
+
+        subgraphs = torch.stack(subgraphs, dim=1) #[B, sub, in, k, k]
+        row_type_seq = torch.stack(row_type_seq, dim=1) #[B, sub, in,  k]
+        row_features = torch.stack(row_features, dim=1) #[B, sub, in_dim]
+        col_type_seq = torch.stack(col_type_seq, dim=1)  # [B, sub, in,  k]
+        col_features = torch.stack(col_features, dim=1)  # [B, sub, in_dim]
+        # print('subgraphs={}, row_type_seq={}, row_features={}, col_type_seq={}, col_features={}'.format(subgraphs.size(), \
+        #                                                         row_type_seq.size(), row_features.size(), col_type_seq.size(), col_features.size()))
+        return subgraphs, row_type_seq, row_features, col_type_seq, col_features
+
 
     def _prepare(self, graph, types, features, d):
         g = graph
@@ -135,13 +230,6 @@ class dilated_iso_layer(nn.Module):
         return subgraphs, row_type_seq, row_features, col_type_seq, col_features
 
 
-    def _sub_feature(self, features, types):
-        for sub_g in types:
-            sub_g = sub_g.reshape(-1)
-            for node_i in sub_g:
-                continue
-        pass
-
     def compute_p(self, subgraphs, kernel):
         c, k, k = kernel.size()
         N, k, k = subgraphs.size() # N = B * n_subgraph
@@ -154,7 +242,7 @@ class dilated_iso_layer(nn.Module):
         P = np.matmul(bar_UGs, np.transpose(bar_UHs,(0,2,1)))
         P_star = torch.from_numpy(np.array(P)).requires_grad_(False)
         P_star = P_star.type(torch.FloatTensor)
-        return P_star
+        return P_star.to(device)
     
 
     def _fast_iso_with_type_constraint(self, sub_graphs, kernel, row_types, col_types):
@@ -201,7 +289,8 @@ class dilated_iso_layer(nn.Module):
         return 1-F.softmax(similarities, dim=-1) # [B, in*out, sub]
 
     def forward(self, graph, types, features):
-        sub_graphs, row_type_seq, row_features, col_type_seq, col_features = self._prepare(graph, types, features, self.dilation)
+        
+        sub_graphs, row_type_seq, row_features, col_type_seq, col_features = self._prepare_random(graph, types, features, self.dilation)
         features = row_features + col_features
         # sub_features = torch.cat([row_features, col_features], dim=-1) # concat on feature dim
         # print('sub features={}'.format(sub_features.size()))
@@ -226,76 +315,5 @@ class dilated_iso_layer(nn.Module):
         # print('features size={}, h_mean size={}, filter <0.95 sim={}'.format(features.size(), h_mean.size(), selected_sorted_sim.size()))
         return h_mean, sim
 
-class gcn_layer(nn.Module):
-    def __init__(self, in_hid, out_hid, device, dropout=0, bias=True):
-        super(gcn_layer, self).__init__()
-        self.in_hid = in_hid
-        self.out_hid = out_hid
-        self.dropout = dropout
-        self.device = device
-        
-        self.is_bias = bias
-        # glorot(self.weight[0])
-        # glorot(self.weight[1])
-        self.reset_parameters()
-
-
-    def reset_parameters(self):
-        self.weight = dict()
-        self.bias = dict()
-        
-        if torch.cuda.is_available():
-            for i in range(3):
-                self.weight[i] = nn.Parameter(torch.FloatTensor(self.in_hid, self.out_hid).to(self.device))
-                stdv = 1. / math.sqrt(self.weight[i].size(1))
-                self.weight[i].data.uniform_(-stdv, stdv)
-                if self.is_bias:
-                    self.bias[i] = nn.Parameter(torch.FloatTensor(self.out_hid).to(self.device))
-                    self.bias[i].data.uniform_(-stdv, stdv)
-                else:
-                    self.register_parameter('bias', None)
-
-
-    '''
-        adj [B, 1, n, n]
-        input [B, n, nfeat]
-
-    '''
-    def forward(self, input, adj):
-        adj = adj.squeeze() #[B, n, n]
-        output = input
-        layer = []
-        print('in feature size={}'.format(input.size()))
-        for i in range(3):
-            support = torch.matmul(output, self.weight[i])
-            output = torch.matmul(adj, support)
-            if self.bias is not None:
-                output = output + self.bias[i]
-            layer.append(torch.sum(output, dim=-2))
-        layer = torch.cat(layer, dim=-1)
-        # output =  # [B, nfeat]
-        print('3 gcn layer, mean node embeddings (SIZE={}) concatenate 3 layers'.format(layer.size()))
-        return layer
-
-    
-
-        
-# class GeneralConv(nn.Module):
-#     def __init__(self, conv_name, in_hid, out_hid, num_types, num_relations, n_heads, dropout):
-#         super(GeneralConv, self).__init__()
-#         self.conv_name = conv_name
-       
-#         if self.conv_name == 'gcn':
-#             self.base_conv = gcn_layer(in_hid, out_hid)
-#         elif self.conv_name == 'gat':
-#             self.base_conv = GATConv(in_hid, out_hid // n_heads, heads=n_heads)
-
-#     def forward(self, X, ):
-      
-#         if self.conv_name == 'gcn':
-#             return self.base_conv(features, adj)
-             
-#         elif self.conv_name == 'gat':
-#             return self.base_conv(meta_xs, edge_index)
 
 
