@@ -2,7 +2,7 @@
 A PyTorch implementation for the CIC 2020 paper below:
 Discovering Localized Information for Heterogeneous Graph Node Representation Learning.
 Lin Meng, Ning Yan, Masood Mortazavi, Jiawei Zhang.
-[paper](https://ieeexplore.ieee.org/document/9319009)
+[\[paper\]](https://ieeexplore.ieee.org/document/9319009)
 
 This work finshed when the author did intern in Futurewei Inc.
 ## Dataset
