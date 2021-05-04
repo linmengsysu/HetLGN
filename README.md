@@ -1,4 +1,4 @@
-## LSGNN
+## HetLGN
 A PyTorch implementation for the CIC 2020 paper below:  
 Discovering Localized Information for Heterogeneous Graph Node Representation Learning.  
 Lin Meng<sup>*</sup>, Ning Yan, Masood Mortazavi, Jiawei Zhang.   
@@ -53,8 +53,6 @@ If you prefer to use docker, please cd to the dockerfile folder /home/meng/code/
     '''bash
         docker run --gpus all -d --ipc=host -it pygraph:1.0  /bin/bash 
     '''
-
-    In my machine, one existing image with all required packages is called pytorch/graph:v4.
 
 - Then got the CONTAINER_ID by '''docker ps''' and enter the container via bash
     '''bash
