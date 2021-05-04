@@ -61,12 +61,6 @@ If you prefer to use docker, please cd to the dockerfile folder /home/meng/code/
         docker exec -it CONTAINER_ID /bin/bash
     '''
 
-- In my machine, you can directly open a container by
-    '''bash
-        docker exec -it 419f7e7d7319 /bin/bash
-    '''
-    and cd to ../code/isonode
-
 ## Plot
 The plot file is node_clustering.py
 
