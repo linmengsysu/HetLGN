@@ -34,7 +34,6 @@ The preprocessing codes are files with name starting with preprocess.
 
 To run the code, simply use '''python preprocess_xxx.py'''
 
-Then cd to the ../code/isonode directory and run code by one of the following commands
 
 '''bash
     python train_node_classification.py --sample_width 6 --sample_depth 2 --dataset _acm_v3 --target_type paper --n_hid 8  > acm.out 
