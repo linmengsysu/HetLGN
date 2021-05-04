@@ -1,5 +1,4 @@
-##LSGNN
-
+## LSGNN
 A PyTorch implementation for the CIC 2020 paper below:
 Discovering Localized Information for Heterogeneous Graph Node Representation Learning.
 Lin Meng, Ning Yan, Masood Mortazavi, Jiawei Zhang.
