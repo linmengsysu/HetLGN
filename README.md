@@ -4,7 +4,7 @@ Discovering Localized Information for Heterogeneous Graph Node Representation Le
 Lin Meng<sup>*</sup>, Ning Yan, Masood Mortazavi, Jiawei Zhang.   
 [\[paper\]](https://ieeexplore.ieee.org/document/9319009)
 
-<sup>*</sup>This work is based on the summer intern in Futurewei Inc.
+<sup>*</sup>This work is based on the summer internship with Futurewei, Inc.
 
 ## Dataset
 We test it on three datasets, the preprocessed datasets are in ./data/:  
